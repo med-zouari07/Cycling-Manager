@@ -1,0 +1,53 @@
+name: Build and Deploy Cycling Manager
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: zouarimed07/cycling-manager:latest
+
+      - name: Deploy to VPS via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+
+          script: |
+            echo "Pull latest image"
+            docker pull zouarimed07/cycling-manager:latest
+
+            echo "Remove old cycling-manager container (new name)"
+            docker rm -f cycling-manager-app || true
+
+            echo "Remove old ftc-manager container (legacy name, still holding port 8081)"
+            docker rm -f ftc-manager || true
+
+            echo "Start new container"
+            docker run -d \
+              -p 8081:80 \
+              --name cycling-manager-app \
+              --restart unless-stopped \
+              zouarimed07/cycling-manager:latest
+
+            echo "Check container status"
+            docker ps | grep cycling-manager-app
