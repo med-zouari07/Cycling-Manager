@@ -12,6 +12,7 @@ import * as XLSX from 'xlsx';
 const empty: Omit<Rider, 'id' | 'created_at'> = {
   first_name: '', last_name: '', photo_url: null, sex: 'M', birth_date: null,
   category_id: null, license_number: '', club_id: null, nationality: '', email: '', phone: '',
+  bib_number: null,
 };
 
 interface ImportRow {
@@ -24,6 +25,7 @@ interface ImportRow {
   nationality: string;
   email: string;
   phone: string;
+  bib_number: string;
 }
 
 export default function Riders() {
@@ -141,6 +143,7 @@ export default function Riders() {
         nationality: get(row, 'Nationalité', 'Nationalite', 'Nationality', 'nationality'),
         email: get(row, 'Email', 'E-mail', 'email'),
         phone: get(row, 'Téléphone', 'Telephone', 'Tel', 'Phone', 'phone'),
+        bib_number: get(row, 'Dossard', 'Dossard N°', 'Bib', 'bib_number', 'bib'),
       }));
 
       const valid = parsed.filter((p) => p.first_name && p.last_name);
@@ -172,6 +175,7 @@ export default function Riders() {
       phone: r.phone || '',
       photo_url: null,
       club_id: clubId,
+      bib_number: r.bib_number ? Number(r.bib_number) : null,
     }));
 
     const { error: insertError } = await supabase.from('riders').insert(rows);
@@ -190,8 +194,8 @@ export default function Riders() {
   // --- Excel Template Download ---
   const downloadTemplate = () => {
     const template = [
-      { Prénom: 'Mohamed', Nom: 'Ben Ali', Sexe: 'M', Naissance: '1998-05-15', Catégorie: 'Elite Homme', Licence: 'TN-00123', Nationalité: 'Tunisienne', Email: 'm.benali@example.com', Téléphone: '+216 22 333 444' },
-      { Prénom: 'Fatima', Nom: 'Trabelsi', Sexe: 'F', Naissance: '2000-03-22', Catégorie: 'Elite Femme', Licence: 'TN-00124', Nationalité: 'Tunisienne', Email: 'f.trabelsi@example.com', Téléphone: '+216 55 666 777' },
+      { Prénom: 'Mohamed', Nom: 'Ben Ali', Sexe: 'M', Naissance: '1998-05-15', Catégorie: 'Elite Homme', Licence: 'TN-00123', Nationalité: 'Tunisienne', Email: 'm.benali@example.com', Téléphone: '+216 22 333 444', Dossard: '1' },
+      { Prénom: 'Fatima', Nom: 'Trabelsi', Sexe: 'F', Naissance: '2000-03-22', Catégorie: 'Elite Femme', Licence: 'TN-00124', Nationalité: 'Tunisienne', Email: 'f.trabelsi@example.com', Téléphone: '+216 55 666 777', Dossard: '2' },
     ];
     const ws = XLSX.utils.json_to_sheet(template);
     const wb = XLSX.utils.book_new();
@@ -230,6 +234,7 @@ export default function Riders() {
               <thead className="bg-gray-50 dark:bg-slate-800/50 text-left text-xs uppercase text-gray-400">
                 <tr>
                   <th className="px-4 py-3 font-medium">Coureur</th>
+                  <th className="px-4 py-3 font-medium">Dossard</th>
                   <th className="px-4 py-3 font-medium">Catégorie</th>
                   <th className="px-4 py-3 font-medium">Club</th>
                   <th className="px-4 py-3 font-medium">Licence</th>
@@ -251,6 +256,7 @@ export default function Riders() {
                         </div>
                       </div>
                     </td>
+                    <td className="px-4 py-3 font-mono font-semibold text-primary-600">{r.bib_number ?? '—'}</td>
                     <td className="px-4 py-3"><Badge color="blue">{catName(r.category_id)}</Badge></td>
                     <td className="px-4 py-3 text-gray-500 dark:text-slate-400">{clubName(r.club_id)}</td>
                     <td className="px-4 py-3 font-mono text-xs">{r.license_number ?? '—'}</td>
@@ -279,6 +285,7 @@ export default function Riders() {
           <div><label className="label">Catégorie</label><select value={form.category_id ?? ''} onChange={(e) => setForm({ ...form, category_id: e.target.value || null })} className="input"><option value="">—</option>{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
           <div><label className="label">Club</label><select value={form.club_id ?? ''} onChange={(e) => setForm({ ...form, club_id: e.target.value || null })} className="input"><option value="">—</option>{clubs.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
           <div><label className="label">N° de licence</label><input value={form.license_number ?? ''} onChange={(e) => setForm({ ...form, license_number: e.target.value })} className="input" /></div>
+          <div><label className="label">Dossard</label><input type="number" value={form.bib_number ?? ''} onChange={(e) => setForm({ ...form, bib_number: e.target.value ? Number(e.target.value) : null })} className="input" /></div>
           <div><label className="label">Nationalité</label><input value={form.nationality ?? ''} onChange={(e) => setForm({ ...form, nationality: e.target.value })} className="input" /></div>
           <div><label className="label">Email</label><input type="email" value={form.email ?? ''} onChange={(e) => setForm({ ...form, email: e.target.value })} className="input" /></div>
           <div><label className="label">Téléphone</label><input value={form.phone ?? ''} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="input" /></div>
@@ -313,7 +320,7 @@ export default function Riders() {
           <div className="space-y-4">
             <p className="text-sm text-gray-500 dark:text-slate-400">
               Importez plusieurs coureurs en une seule fois depuis un fichier Excel (.xlsx).
-              Les colonnes reconnues sont: <strong>Prénom</strong>, <strong>Nom</strong>, Sexe, Naissance,
+              Les colonnes reconnues sont: <strong>Prénom</strong>, <strong>Nom</strong>, Dossard, Sexe, Naissance,
               Catégorie, Licence, Nationalité, Email, Téléphone.
               Les colonnes "Prénom" et "Nom" sont obligatoires.
             </p>
@@ -327,7 +334,7 @@ export default function Riders() {
               type="file"
               accept=".xlsx,.xls"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
-              className="hidden"
+              className="sr-only"
             />
             <button onClick={() => fileRef.current?.click()} className="btn-primary w-full">
               <Upload className="w-4 h-4" /> Choisir un fichier Excel
@@ -347,6 +354,7 @@ export default function Riders() {
                   <tr>
                     <th className="px-3 py-2">Prénom</th>
                     <th className="px-3 py-2">Nom</th>
+                    <th className="px-3 py-2">Dossard</th>
                     <th className="px-3 py-2">Sexe</th>
                     <th className="px-3 py-2">Cat.</th>
                     <th className="px-3 py-2">Licence</th>
@@ -358,6 +366,7 @@ export default function Riders() {
                     <tr key={i}>
                       <td className="px-3 py-2 font-medium">{r.first_name}</td>
                       <td className="px-3 py-2">{r.last_name}</td>
+                      <td className="px-3 py-2 font-mono font-semibold text-primary-600">{r.bib_number || '—'}</td>
                       <td className="px-3 py-2">{r.sex}</td>
                       <td className="px-3 py-2 text-gray-400">{r.category_name || '—'}</td>
                       <td className="px-3 py-2 font-mono text-xs">{r.license_number || '—'}</td>

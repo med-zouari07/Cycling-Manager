@@ -33,6 +33,7 @@ export interface Rider {
   nationality: string | null;
   email: string | null;
   phone: string | null;
+  bib_number: number | null;
   created_at: string;
 }
 
