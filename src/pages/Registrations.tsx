@@ -5,7 +5,7 @@ import { isAdmin } from '../lib/supabase';
 import type { Registration, Race, Stage, Category, Rider, Club } from '../lib/types';
 import { PageHeader, Modal, EmptyState, Spinner, ErrorState, Badge } from '../components/ui';
 import { fullName, formatDate } from '../lib/hooks';
-import { ClipboardList, Plus, Check, X, Search, Flag, ChevronRight, Bike } from 'lucide-react';
+import { ClipboardList, Plus, Check, X, Search, Flag, ChevronRight, Bike, CheckCheck } from 'lucide-react';
 
 const STATUS: Record<string, { label: string; color: 'yellow' | 'green' | 'red' }> = {
   pending: { label: 'En attente', color: 'yellow' },
@@ -29,7 +29,9 @@ export default function Registrations() {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [selectedRaceId, setSelectedRaceId] = useState<string | null>(null);
-  const [form, setForm] = useState({ race_id: '', rider_id: '' });
+  const [selectedRiderIds, setSelectedRiderIds] = useState<string[]>([]);
+  const [riderSearch, setRiderSearch] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -110,14 +112,30 @@ export default function Registrations() {
     load();
   };
 
+  const toggleRider = (riderId: string) => {
+    setSelectedRiderIds((prev) =>
+      prev.includes(riderId) ? prev.filter((id) => id !== riderId) : [...prev, riderId],
+    );
+  };
+
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.race_id || !form.rider_id) return;
-    await supabase
-      .from('registrations')
-      .insert({ race_id: form.race_id, rider_id: form.rider_id, status: 'pending' });
+    if (!selectedRaceId || selectedRiderIds.length === 0) return;
+    setSubmitting(true);
+    const rows = selectedRiderIds.map((riderId) => ({
+      race_id: selectedRaceId,
+      rider_id: riderId,
+      status: 'pending',
+    }));
+    const { error: insError } = await supabase.from('registrations').insert(rows);
+    setSubmitting(false);
+    if (insError) {
+      setError(insError.message);
+      return;
+    }
     setOpen(false);
-    setForm({ race_id: '', rider_id: '' });
+    setSelectedRiderIds([]);
+    setRiderSearch('');
     load();
   };
 
@@ -157,7 +175,22 @@ export default function Registrations() {
   if (!admin && selectedRaceId) {
     const race = races.find((r) => r.id === selectedRaceId);
     const registered = alreadyRegistered(selectedRaceId);
-    const availableRiders = myRiders.filter((r) => !registered.has(r.id));
+
+    // Filter riders: not yet registered AND matching the race's category
+    const categoryRiders = race?.category_id
+      ? myRiders.filter((r) => r.category_id === race.category_id)
+      : myRiders;
+    const availableRiders = categoryRiders.filter((r) => !registered.has(r.id));
+
+    // Riders that match category but are already registered (shown as disabled)
+    const alreadyInCategory = categoryRiders.filter((r) => registered.has(r.id));
+
+    const searchedRiders = availableRiders.filter((r) =>
+      fullName(r.first_name, r.last_name).toLowerCase().includes(riderSearch.toLowerCase()),
+    );
+
+    const allSelected = searchedRiders.length > 0 && searchedRiders.every((r) => selectedRiderIds.includes(r.id));
+
     const raceRegs = visibleRegs.filter((r) => r.race_id === selectedRaceId);
 
     return (
@@ -171,11 +204,11 @@ export default function Registrations() {
             <p className="text-sm text-gray-400">{raceStageDate(selectedRaceId)} · {catName(race?.category_id ?? '')}</p>
           </div>
           <button
-            onClick={() => { setForm({ race_id: selectedRaceId, rider_id: '' }); setOpen(true); }}
+            onClick={() => { setSelectedRiderIds([]); setRiderSearch(''); setOpen(true); }}
             disabled={availableRiders.length === 0}
             className="btn-primary ml-auto"
           >
-            <Plus className="w-4 h-4" /> Inscrire un coureur
+            <Plus className="w-4 h-4" /> Inscrire des coureurs
           </button>
         </div>
 
@@ -214,27 +247,99 @@ export default function Registrations() {
           </div>
         )}
 
-        <Modal open={open} onClose={() => setOpen(false)} title="Inscrire un coureur">
+        <Modal open={open} onClose={() => { setOpen(false); setSelectedRiderIds([]); setRiderSearch(''); }} title="Inscrire des coureurs" size="lg">
           <form onSubmit={create} className="space-y-4">
             <div>
               <label className="label">Course</label>
               <div className="input bg-gray-50 dark:bg-slate-800">{raceLabel(selectedRaceId)}</div>
             </div>
+
             <div>
-              <label className="label">Coureur *</label>
-              <select required value={form.rider_id} onChange={(e) => setForm({ ...form, rider_id: e.target.value })} className="input">
-                <option value="">—</option>
-                {availableRiders.map((r) => (
-                  <option key={r.id} value={r.id}>{fullName(r.first_name, r.last_name)}</option>
-                ))}
-              </select>
-              {availableRiders.length === 0 && (
-                <p className="text-xs text-gray-400 mt-1">Tous vos coureurs sont déjà inscrits à cette course.</p>
+              <div className="flex items-center justify-between mb-2">
+                <label className="label !mb-0">
+                  Coureurs éligibles ({catName(race?.category_id ?? '')})
+                </label>
+                {searchedRiders.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (allSelected) {
+                        setSelectedRiderIds((prev) => prev.filter((id) => !searchedRiders.some((r) => r.id === id)));
+                      } else {
+                        setSelectedRiderIds((prev) => [...new Set([...prev, ...searchedRiders.map((r) => r.id)])]);
+                      }
+                    }}
+                    className="text-xs text-primary-600 hover:text-primary-700 font-medium flex items-center gap-1"
+                  >
+                    {allSelected ? <X className="w-3.5 h-3.5" /> : <CheckCheck className="w-3.5 h-3.5" />}
+                    {allSelected ? 'Tout désélectionner' : 'Tout sélectionner'}
+                  </button>
+                )}
+              </div>
+
+              <div className="relative mb-2">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  value={riderSearch}
+                  onChange={(e) => setRiderSearch(e.target.value)}
+                  placeholder="Rechercher un coureur..."
+                  className="input pl-10 !py-2"
+                />
+              </div>
+
+              {availableRiders.length === 0 ? (
+                <div className="text-center py-6 text-sm text-gray-400">
+                  {alreadyInCategory.length > 0
+                    ? `Tous les coureurs de la catégorie ${catName(race?.category_id ?? '')} sont déjà inscrits.`
+                    : `Aucun coureur dans la catégorie ${catName(race?.category_id ?? '')}.`}
+                </div>
+              ) : (
+                <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 dark:border-slate-700 divide-y divide-gray-100 dark:divide-slate-800">
+                  {searchedRiders.map((r) => {
+                    const checked = selectedRiderIds.includes(r.id);
+                    return (
+                      <label
+                        key={r.id}
+                        className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer transition hover:bg-gray-50 dark:hover:bg-slate-800/50 ${checked ? 'bg-primary-50 dark:bg-primary-500/5' : ''}`}
+                      >
+                        <div className={`w-5 h-5 rounded-md border-2 grid place-items-center transition shrink-0 ${checked ? 'bg-primary-600 border-primary-600' : 'border-gray-300 dark:border-slate-600'}`}>
+                          {checked && <Check className="w-3.5 h-3.5 text-white" />}
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleRider(r.id)}
+                          className="sr-only"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm">{fullName(r.first_name, r.last_name)}</p>
+                          <p className="text-xs text-gray-400">
+                            {r.license_number || '—'} · {r.bib_number ? `Dossard ${r.bib_number}` : 'Pas de dossard'}
+                          </p>
+                        </div>
+                      </label>
+                    );
+                  })}
+                  {searchedRiders.length === 0 && availableRiders.length > 0 && (
+                    <div className="text-center py-6 text-sm text-gray-400">
+                      Aucun coureur trouvé pour "{riderSearch}".
+                    </div>
+                  )}
+                </div>
               )}
             </div>
+
+            {selectedRiderIds.length > 0 && (
+              <div className="text-sm text-primary-600 font-medium">
+                {selectedRiderIds.length} coureur(s) sélectionné(s)
+              </div>
+            )}
+
             <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setOpen(false)} className="btn-secondary">Annuler</button>
-              <button type="submit" className="btn-primary">Inscrire</button>
+              <button type="button" onClick={() => { setOpen(false); setSelectedRiderIds([]); setRiderSearch(''); }} className="btn-secondary">Annuler</button>
+              <button type="submit" disabled={selectedRiderIds.length === 0 || submitting} className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed">
+                {submitting ? 'Inscription...' : `Inscrire ${selectedRiderIds.length > 0 ? `(${selectedRiderIds.length})` : ''}`}
+              </button>
             </div>
           </form>
         </Modal>
@@ -262,6 +367,7 @@ export default function Registrations() {
                 <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {stageRaces.map((r) => {
                     const raceRegs = visibleRegs.filter((rg) => rg.race_id === r.id);
+                    const eligibleCount = myRiders.filter((rd) => rd.category_id === r.category_id).length;
                     return (
                       <button
                         key={r.id}
@@ -274,7 +380,9 @@ export default function Registrations() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <h4 className="font-semibold">{catName(r.category_id)}</h4>
-                            <p className="text-xs text-gray-400">{raceRegs.length} inscription(s)</p>
+                            <p className="text-xs text-gray-400">
+                              {raceRegs.length} inscription(s) · {eligibleCount} éligible(s)
+                            </p>
                           </div>
                           <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-primary-500 transition" />
                         </div>
