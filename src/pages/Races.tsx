@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/auth';
 import { isAdmin } from '../lib/supabase';
@@ -6,7 +6,16 @@ import type { Stage, Race, Category, Registration, Rider, Result } from '../lib/
 import { PageHeader, Modal, EmptyState, Spinner, ErrorState, Badge } from '../components/ui';
 import { fullName, formatDate, formatInterval } from '../lib/hooks';
 import { navigate } from '../lib/router';
-import { Bike, Plus, Trash2, Flag, ChevronRight, ClipboardList, BarChart3 } from 'lucide-react';
+import { Bike, Plus, Trash2, Flag, ChevronRight, ClipboardList, BarChart3, Image as ImageIcon, MapPin, Upload, X, FileImage } from 'lucide-react';
+
+async function uploadRaceMedia(file: File, raceId: string, kind: 'circuit' | 'poster'): Promise<string | null> {
+  const ext = file.name.split('.').pop() ?? 'jpg';
+  const path = `${raceId}/${kind}-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from('race-media').upload(path, file, { upsert: true });
+  if (error) return null;
+  const { data } = supabase.storage.from('race-media').getPublicUrl(path);
+  return data.publicUrl;
+}
 
 export default function Races() {
   const { role } = useAuth();
@@ -18,7 +27,13 @@ export default function Races() {
   const [error, setError] = useState<string | null>(null);
   const [selectedStage, setSelectedStage] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ category_id: '', bib_start: '1' });
+  const [form, setForm] = useState({ category_id: '', bib_start: '1', map_embed_url: '' });
+  const [circuitPhoto, setCircuitPhoto] = useState<File | null>(null);
+  const [posterFile, setPosterFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const circuitInputRef = useRef<HTMLInputElement>(null);
+  const posterInputRef = useRef<HTMLInputElement>(null);
 
   const load = async () => {
     setLoading(true);
@@ -43,14 +58,53 @@ export default function Races() {
   const createRace = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedStage || !form.category_id) return;
-    await supabase.from('races').insert({
-      stage_id: selectedStage,
-      category_id: form.category_id,
-      bib_start: Number(form.bib_start) || 1,
-      is_global: true,
-    });
+    setUploading(true);
+
+    // Insert race first to get the ID
+    const { data: newRace, error: insError } = await supabase
+      .from('races')
+      .insert({
+        stage_id: selectedStage,
+        category_id: form.category_id,
+        bib_start: Number(form.bib_start) || 1,
+        map_embed_url: form.map_embed_url || null,
+        is_global: true,
+      })
+      .select()
+      .single();
+
+    if (insError || !newRace) {
+      setUploading(false);
+      setError(insError?.message ?? 'Erreur lors de la création');
+      return;
+    }
+
+    const raceId = newRace.id;
+    let circuitPhotoUrl: string | null = null;
+    let posterUrl: string | null = null;
+
+    if (circuitPhoto) {
+      circuitPhotoUrl = await uploadRaceMedia(circuitPhoto, raceId, 'circuit');
+    }
+    if (posterFile) {
+      posterUrl = await uploadRaceMedia(posterFile, raceId, 'poster');
+    }
+
+    if (circuitPhotoUrl || posterUrl) {
+      await supabase
+        .from('races')
+        .update({
+          ...(circuitPhotoUrl ? { circuit_photo_url: circuitPhotoUrl } : {}),
+          ...(posterUrl ? { poster_url: posterUrl } : {}),
+        })
+        .eq('id', raceId);
+    }
+
+    setUploading(false);
     setOpen(false);
-    setForm({ category_id: '', bib_start: '1' });
+    setForm({ category_id: '', bib_start: '1', map_embed_url: '' });
+    setCircuitPhoto(null);
+    setPosterFile(null);
     load();
   };
 
@@ -108,11 +162,88 @@ export default function Races() {
         </div>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Nouvelle course">
+      <Modal open={open} onClose={() => { setOpen(false); setCircuitPhoto(null); setPosterFile(null); }} title="Nouvelle course" size="lg">
         <form onSubmit={createRace} className="space-y-4">
           <div><label className="label">Catégorie *</label><select required value={form.category_id} onChange={(e) => setForm({ ...form, category_id: e.target.value })} className="input"><option value="">—</option>{cats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
           <div><label className="label">Dossard de départ</label><input type="number" value={form.bib_start} onChange={(e) => setForm({ ...form, bib_start: e.target.value })} className="input" /></div>
-          <div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setOpen(false)} className="btn-secondary">Annuler</button><button type="submit" className="btn-primary">Créer</button></div>
+
+          <div>
+            <label className="label flex items-center gap-1.5"><MapPin className="w-4 h-4 text-gray-400" /> Itinéraire de course (Google Maps embed)</label>
+            <input
+              value={form.map_embed_url}
+              onChange={(e) => setForm({ ...form, map_embed_url: e.target.value })}
+              placeholder="https://www.google.com/maps/embed?pb=..."
+              className="input"
+            />
+            <p className="text-xs text-gray-400 mt-1">Collez l'URL d'intégration Google Maps (Partager → Intégrer une carte → Copier le code HTML, extrayez l'URL src).</p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label className="label flex items-center gap-1.5"><ImageIcon className="w-4 h-4 text-gray-400" /> Photo du circuit</label>
+              <input
+                ref={circuitInputRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(e) => setCircuitPhoto(e.target.files?.[0] ?? null)}
+              />
+              <button
+                type="button"
+                onClick={() => circuitInputRef.current?.click()}
+                className="w-full rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-700 p-4 text-center hover:border-primary-400 transition"
+              >
+                {circuitPhoto ? (
+                  <div className="flex items-center justify-center gap-2 text-sm text-primary-600">
+                    <FileImage className="w-4 h-4" />
+                    <span className="truncate max-w-[140px]">{circuitPhoto.name}</span>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setCircuitPhoto(null); }} className="text-error-500"><X className="w-4 h-4" /></button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1 text-sm text-gray-400">
+                    <Upload className="w-5 h-5" />
+                    <span>Cliquez pour téléverser</span>
+                  </div>
+                )}
+              </button>
+            </div>
+
+            <div>
+              <label className="label flex items-center gap-1.5"><FileImage className="w-4 h-4 text-gray-400" /> Affiche de la course</label>
+              <input
+                ref={posterInputRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                onChange={(e) => setPosterFile(e.target.files?.[0] ?? null)}
+              />
+              <button
+                type="button"
+                onClick={() => posterInputRef.current?.click()}
+                className="w-full rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-700 p-4 text-center hover:border-primary-400 transition"
+              >
+                {posterFile ? (
+                  <div className="flex items-center justify-center gap-2 text-sm text-primary-600">
+                    <FileImage className="w-4 h-4" />
+                    <span className="truncate max-w-[140px]">{posterFile.name}</span>
+                    <button type="button" onClick={(e) => { e.stopPropagation(); setPosterFile(null); }} className="text-error-500"><X className="w-4 h-4" /></button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-1 text-sm text-gray-400">
+                    <Upload className="w-5 h-5" />
+                    <span>Cliquez pour téléverser</span>
+                  </div>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={() => { setOpen(false); setCircuitPhoto(null); setPosterFile(null); }} className="btn-secondary">Annuler</button>
+            <button type="submit" disabled={uploading} className="btn-primary disabled:opacity-50">
+              {uploading ? 'Création...' : 'Créer'}
+            </button>
+          </div>
         </form>
       </Modal>
     </div>
@@ -123,7 +254,7 @@ function RaceCard({ race, catName, readOnly, onDelete }: { race: Race; catName: 
   const [regs, setRegs] = useState<Registration[]>([]);
   const [riders, setRiders] = useState<Record<string, Rider>>({});
   const [results, setResults] = useState<Result[]>([]);
-  const [tab, setTab] = useState<'list' | 'results'>('list');
+  const [tab, setTab] = useState<'info' | 'list' | 'results'>('info');
 
   useEffect(() => {
     (async () => {
@@ -146,6 +277,8 @@ function RaceCard({ race, catName, readOnly, onDelete }: { race: Race; catName: 
   const validated = regs.filter((r) => r.status === 'validated');
   const riderName = (id: string) => { const r = riders[id]; return r ? fullName(r.first_name, r.last_name) : '—'; };
 
+  const hasMedia = race.circuit_photo_url || race.map_embed_url || race.poster_url;
+
   return (
     <div className="card overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-slate-800">
@@ -155,12 +288,52 @@ function RaceCard({ race, catName, readOnly, onDelete }: { race: Race; catName: 
         </div>
         {!readOnly && <button onClick={onDelete} className="btn-ghost !p-1.5 hover:text-error-500"><Trash2 className="w-4 h-4" /></button>}
       </div>
+
       <div className="flex border-b border-gray-100 dark:border-slate-800">
+        {hasMedia && (
+          <button onClick={() => setTab('info')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition ${tab === 'info' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}>
+            <ImageIcon className="w-4 h-4 inline mr-1.5" />Annonce
+          </button>
+        )}
         <button onClick={() => setTab('list')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition ${tab === 'list' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}><ClipboardList className="w-4 h-4 inline mr-1.5" />Liste de départ</button>
         <button onClick={() => setTab('results')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition ${tab === 'results' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}><BarChart3 className="w-4 h-4 inline mr-1.5" />Résultats</button>
       </div>
-      <div className="p-4 max-h-72 overflow-y-auto">
-        {tab === 'list' ? (
+
+      <div className="p-4 max-h-96 overflow-y-auto">
+        {tab === 'info' && hasMedia && (
+          <div className="space-y-4">
+            {race.poster_url && (
+              <div>
+                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">Affiche</h4>
+                <img src={race.poster_url} alt="Affiche de la course" className="w-full rounded-xl border border-gray-200 dark:border-slate-700" />
+              </div>
+            )}
+            {race.circuit_photo_url && (
+              <div>
+                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">Photo du circuit</h4>
+                <img src={race.circuit_photo_url} alt="Circuit" className="w-full rounded-xl border border-gray-200 dark:border-slate-700" />
+              </div>
+            )}
+            {race.map_embed_url && (
+              <div>
+                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">Itinéraire</h4>
+                <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700">
+                  <iframe
+                    src={race.map_embed_url}
+                    width="100%"
+                    height="300"
+                    style={{ border: 0 }}
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    title="Itinéraire de la course"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'list' && (
           validated.length === 0 ? <div className="text-center text-sm text-gray-400 py-6">Aucun partant validé.</div> : (
             <table className="w-full text-sm">
               <tbody>
@@ -173,7 +346,9 @@ function RaceCard({ race, catName, readOnly, onDelete }: { race: Race; catName: 
               </tbody>
             </table>
           )
-        ) : (
+        )}
+
+        {tab === 'results' && (
           results.length === 0 ? <div className="text-center text-sm text-gray-400 py-6">Aucun résultat saisi.</div> : (
             <table className="w-full text-sm">
               <thead className="text-xs text-gray-400 text-left"><tr><th className="py-1 w-10">#</th><th className="py-1">Coureur</th><th className="py-1 w-20">Temps</th><th className="py-1 w-14">Pts</th></tr></thead>

@@ -86,6 +86,9 @@ export interface Race {
   stage_id: string;
   category_id: string;
   bib_start: number;
+  circuit_photo_url: string | null;
+  map_embed_url: string | null;
+  poster_url: string | null;
   is_global: boolean;
   created_at: string;
 }
