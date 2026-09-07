@@ -8,13 +8,16 @@ import { fullName, formatDate, formatInterval } from '../lib/hooks';
 import { navigate } from '../lib/router';
 import { Bike, Plus, Trash2, Flag, ChevronRight, ClipboardList, BarChart3, Image as ImageIcon, MapPin, Upload, X, FileImage } from 'lucide-react';
 
-async function uploadRaceMedia(file: File, raceId: string, kind: 'circuit' | 'poster'): Promise<string | null> {
+async function uploadRaceMedia(file: File, raceId: string, kind: 'circuit' | 'poster'): Promise<{ url: string | null; error: string | null }> {
   const ext = file.name.split('.').pop() ?? 'jpg';
   const path = `${raceId}/${kind}-${Date.now()}.${ext}`;
-  const { error } = await supabase.storage.from('race-media').upload(path, file, { upsert: true });
-  if (error) return null;
+  const { error } = await supabase.storage.from('race-media').upload(path, file, {
+    upsert: true,
+    contentType: file.type || 'image/jpeg',
+  });
+  if (error) return { url: null, error: error.message };
   const { data } = supabase.storage.from('race-media').getPublicUrl(path);
-  return data.publicUrl;
+  return { url: data.publicUrl, error: null };
 }
 
 export default function Races() {
@@ -82,12 +85,17 @@ export default function Races() {
     const raceId = newRace.id;
     let circuitPhotoUrl: string | null = null;
     let posterUrl: string | null = null;
+    let uploadError: string | null = null;
 
     if (circuitPhoto) {
-      circuitPhotoUrl = await uploadRaceMedia(circuitPhoto, raceId, 'circuit');
+      const res = await uploadRaceMedia(circuitPhoto, raceId, 'circuit');
+      circuitPhotoUrl = res.url;
+      if (res.error) uploadError = `Photo circuit: ${res.error}`;
     }
     if (posterFile) {
-      posterUrl = await uploadRaceMedia(posterFile, raceId, 'poster');
+      const res = await uploadRaceMedia(posterFile, raceId, 'poster');
+      posterUrl = res.url;
+      if (res.error) uploadError = `${uploadError ? uploadError + ' · ' : ''}Affiche: ${res.error}`;
     }
 
     if (circuitPhotoUrl || posterUrl) {
@@ -101,10 +109,16 @@ export default function Races() {
     }
 
     setUploading(false);
-    setOpen(false);
-    setForm({ category_id: '', bib_start: '1', map_embed_url: '' });
-    setCircuitPhoto(null);
-    setPosterFile(null);
+
+    if (uploadError) {
+      setError(uploadError);
+    } else {
+      setOpen(false);
+      setForm({ category_id: '', bib_start: '1', map_embed_url: '' });
+      setCircuitPhoto(null);
+      setPosterFile(null);
+      setError(null);
+    }
     load();
   };
 
@@ -156,7 +170,7 @@ export default function Races() {
             <EmptyState icon={Bike} title="Aucune course" description="Les courses sont créées par l'administrateur." action={admin && <button onClick={() => setOpen(true)} className="btn-primary"><Plus className="w-4 h-4" /> Ajouter</button>} />
           ) : (
             <div className="grid lg:grid-cols-2 gap-4">
-              {stageRaces.map((r) => <RaceCard key={r.id} race={r} catName={catName(r.category_id)} readOnly={!admin} onDelete={() => removeRace(r.id)} />)}
+              {stageRaces.map((r) => <RaceCard key={r.id} race={r} catName={catName(r.category_id)} readOnly={!admin} onDelete={() => removeRace(r.id)} onRaceUpdated={load} />)}
             </div>
           )}
         </div>
@@ -250,11 +264,24 @@ export default function Races() {
   );
 }
 
-function RaceCard({ race, catName, readOnly, onDelete }: { race: Race; catName: string; readOnly: boolean; onDelete: () => void }) {
+function RaceCard({ race, catName, readOnly, onDelete, onRaceUpdated }: { race: Race; catName: string; readOnly: boolean; onDelete: () => void; onRaceUpdated: () => void }) {
   const [regs, setRegs] = useState<Registration[]>([]);
   const [riders, setRiders] = useState<Record<string, Rider>>({});
   const [results, setResults] = useState<Result[]>([]);
-  const [tab, setTab] = useState<'info' | 'list' | 'results'>('info');
+  const [tab, setTab] = useState<'info' | 'list' | 'results'>(
+    race.circuit_photo_url || race.map_embed_url || race.poster_url ? 'info' : 'list',
+  );
+  const [editMedia, setEditMedia] = useState(false);
+  const [mediaForm, setMediaForm] = useState({
+    map_embed_url: race.map_embed_url ?? '',
+  });
+  const [newCircuitPhoto, setNewCircuitPhoto] = useState<File | null>(null);
+  const [newPoster, setNewPoster] = useState<File | null>(null);
+  const [savingMedia, setSavingMedia] = useState(false);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+
+  const editCircuitRef = useRef<HTMLInputElement>(null);
+  const editPosterRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -279,6 +306,51 @@ function RaceCard({ race, catName, readOnly, onDelete }: { race: Race; catName: 
 
   const hasMedia = race.circuit_photo_url || race.map_embed_url || race.poster_url;
 
+  const saveMedia = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingMedia(true);
+    setMediaError(null);
+
+    let circuitPhotoUrl: string | null = null;
+    let posterUrl: string | null = null;
+    let uploadError: string | null = null;
+
+    if (newCircuitPhoto) {
+      const res = await uploadRaceMedia(newCircuitPhoto, race.id, 'circuit');
+      circuitPhotoUrl = res.url;
+      if (res.error) uploadError = `Photo circuit: ${res.error}`;
+    }
+    if (newPoster) {
+      const res = await uploadRaceMedia(newPoster, race.id, 'poster');
+      posterUrl = res.url;
+      if (res.error) uploadError = `${uploadError ? uploadError + ' · ' : ''}Affiche: ${res.error}`;
+    }
+
+    const updatePayload: Record<string, string | null> = {
+      map_embed_url: mediaForm.map_embed_url || null,
+    };
+    if (circuitPhotoUrl) updatePayload.circuit_photo_url = circuitPhotoUrl;
+    if (posterUrl) updatePayload.poster_url = posterUrl;
+
+    const { error: updError } = await supabase.from('races').update(updatePayload).eq('id', race.id);
+
+    setSavingMedia(false);
+
+    if (updError) {
+      setMediaError(updError.message);
+      return;
+    }
+    if (uploadError) {
+      setMediaError(uploadError);
+      return;
+    }
+
+    setEditMedia(false);
+    setNewCircuitPhoto(null);
+    setNewPoster(null);
+    onRaceUpdated();
+  };
+
   return (
     <div className="card overflow-hidden">
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-slate-800">
@@ -290,44 +362,135 @@ function RaceCard({ race, catName, readOnly, onDelete }: { race: Race; catName: 
       </div>
 
       <div className="flex border-b border-gray-100 dark:border-slate-800">
-        {hasMedia && (
-          <button onClick={() => setTab('info')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition ${tab === 'info' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}>
-            <ImageIcon className="w-4 h-4 inline mr-1.5" />Annonce
-          </button>
-        )}
+        <button onClick={() => setTab('info')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition ${tab === 'info' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}>
+          <ImageIcon className="w-4 h-4 inline mr-1.5" />Annonce
+        </button>
         <button onClick={() => setTab('list')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition ${tab === 'list' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}><ClipboardList className="w-4 h-4 inline mr-1.5" />Liste de départ</button>
         <button onClick={() => setTab('results')} className={`px-4 py-2.5 text-sm font-medium border-b-2 transition ${tab === 'results' ? 'border-primary-600 text-primary-600' : 'border-transparent text-gray-400'}`}><BarChart3 className="w-4 h-4 inline mr-1.5" />Résultats</button>
       </div>
 
       <div className="p-4 max-h-96 overflow-y-auto">
-        {tab === 'info' && hasMedia && (
+        {tab === 'info' && (
           <div className="space-y-4">
-            {race.poster_url && (
-              <div>
-                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">Affiche</h4>
-                <img src={race.poster_url} alt="Affiche de la course" className="w-full rounded-xl border border-gray-200 dark:border-slate-700" />
+            {!readOnly && (
+              <div className="flex justify-end">
+                <button onClick={() => setEditMedia(!editMedia)} className="btn-ghost !py-1.5 !px-3 text-sm">
+                  <ImageIcon className="w-4 h-4" /> {editMedia ? 'Annuler' : 'Modifier'}
+                </button>
               </div>
             )}
-            {race.circuit_photo_url && (
-              <div>
-                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">Photo du circuit</h4>
-                <img src={race.circuit_photo_url} alt="Circuit" className="w-full rounded-xl border border-gray-200 dark:border-slate-700" />
-              </div>
-            )}
-            {race.map_embed_url && (
-              <div>
-                <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">Itinéraire</h4>
-                <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700">
-                  <iframe
-                    src={race.map_embed_url}
-                    width="100%"
-                    height="300"
-                    style={{ border: 0 }}
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    title="Itinéraire de la course"
+
+            {editMedia && !readOnly ? (
+              <form onSubmit={saveMedia} className="space-y-4">
+                <div>
+                  <label className="label flex items-center gap-1.5"><MapPin className="w-4 h-4 text-gray-400" /> Itinéraire Google Maps</label>
+                  <input
+                    value={mediaForm.map_embed_url}
+                    onChange={(e) => setMediaForm({ ...mediaForm, map_embed_url: e.target.value })}
+                    placeholder="https://www.google.com/maps/embed?pb=..."
+                    className="input"
                   />
+                  <p className="text-xs text-gray-400 mt-1">Collez l'URL d'intégration Google Maps.</p>
                 </div>
+
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="label flex items-center gap-1.5"><ImageIcon className="w-4 h-4 text-gray-400" /> Photo du circuit</label>
+                    <input ref={editCircuitRef} type="file" accept="image/*" className="sr-only" onChange={(e) => setNewCircuitPhoto(e.target.files?.[0] ?? null)} />
+                    <button type="button" onClick={() => editCircuitRef.current?.click()} className="w-full rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-700 p-4 text-center hover:border-primary-400 transition">
+                      {newCircuitPhoto ? (
+                        <div className="flex items-center justify-center gap-2 text-sm text-primary-600">
+                          <FileImage className="w-4 h-4" />
+                          <span className="truncate max-w-[120px]">{newCircuitPhoto.name}</span>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setNewCircuitPhoto(null); }} className="text-error-500"><X className="w-4 h-4" /></button>
+                        </div>
+                      ) : race.circuit_photo_url ? (
+                        <div className="flex flex-col items-center gap-1 text-sm text-gray-400">
+                          <img src={race.circuit_photo_url} alt="Circuit actuel" className="w-full h-20 object-cover rounded-lg mb-1" />
+                          <span>Remplacer</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-1 text-sm text-gray-400">
+                          <Upload className="w-5 h-5" />
+                          <span>Téléverser</span>
+                        </div>
+                      )}
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="label flex items-center gap-1.5"><FileImage className="w-4 h-4 text-gray-400" /> Affiche</label>
+                    <input ref={editPosterRef} type="file" accept="image/*" className="sr-only" onChange={(e) => setNewPoster(e.target.files?.[0] ?? null)} />
+                    <button type="button" onClick={() => editPosterRef.current?.click()} className="w-full rounded-xl border-2 border-dashed border-gray-200 dark:border-slate-700 p-4 text-center hover:border-primary-400 transition">
+                      {newPoster ? (
+                        <div className="flex items-center justify-center gap-2 text-sm text-primary-600">
+                          <FileImage className="w-4 h-4" />
+                          <span className="truncate max-w-[120px]">{newPoster.name}</span>
+                          <button type="button" onClick={(e) => { e.stopPropagation(); setNewPoster(null); }} className="text-error-500"><X className="w-4 h-4" /></button>
+                        </div>
+                      ) : race.poster_url ? (
+                        <div className="flex flex-col items-center gap-1 text-sm text-gray-400">
+                          <img src={race.poster_url} alt="Affiche actuelle" className="w-full h-20 object-cover rounded-lg mb-1" />
+                          <span>Remplacer</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-1 text-sm text-gray-400">
+                          <Upload className="w-5 h-5" />
+                          <span>Téléverser</span>
+                        </div>
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {mediaError && (
+                  <div className="rounded-xl bg-error-50 dark:bg-error-500/10 border border-error-200 dark:border-error-500/30 px-4 py-3 text-sm text-error-700 dark:text-error-400">
+                    {mediaError}
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2">
+                  <button type="button" onClick={() => { setEditMedia(false); setNewCircuitPhoto(null); setNewPoster(null); setMediaError(null); }} className="btn-secondary">Annuler</button>
+                  <button type="submit" disabled={savingMedia} className="btn-primary disabled:opacity-50">
+                    {savingMedia ? 'Enregistrement...' : 'Enregistrer'}
+                  </button>
+                </div>
+              </form>
+            ) : hasMedia ? (
+              <>
+                {race.poster_url && (
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">Affiche</h4>
+                    <img src={race.poster_url} alt="Affiche de la course" className="w-full rounded-xl border border-gray-200 dark:border-slate-700" />
+                  </div>
+                )}
+                {race.circuit_photo_url && (
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">Photo du circuit</h4>
+                    <img src={race.circuit_photo_url} alt="Circuit" className="w-full rounded-xl border border-gray-200 dark:border-slate-700" />
+                  </div>
+                )}
+                {race.map_embed_url && (
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase text-gray-400 mb-2">Itinéraire</h4>
+                    <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-700">
+                      <iframe
+                        src={race.map_embed_url}
+                        width="100%"
+                        height="300"
+                        style={{ border: 0 }}
+                        loading="lazy"
+                        referrerPolicy="no-referrer-when-downgrade"
+                        title="Itinéraire de la course"
+                      />
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-center text-sm text-gray-400 py-6">
+                Aucune annonce publiée pour cette course.
+                {!readOnly && <div className="mt-2">Cliquez sur "Modifier" pour ajouter une photo, un itinéraire ou une affiche.</div>}
               </div>
             )}
           </div>
