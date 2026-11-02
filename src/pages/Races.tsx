@@ -6,7 +6,7 @@ import type { Stage, Race, Category, Registration, Rider, Result } from '../lib/
 import { PageHeader, Modal, EmptyState, Spinner, ErrorState, Badge } from '../components/ui';
 import { fullName, formatDate, formatInterval } from '../lib/hooks';
 import { navigate } from '../lib/router';
-import { Bike, Plus, Trash2, Flag, ChevronRight, ClipboardList, BarChart3, Image as ImageIcon, MapPin, Upload, X, FileImage } from 'lucide-react';
+import { Bike, Plus, Trash2, Flag, ChevronRight, ClipboardList, BarChart3, Image as ImageIcon, MapPin, Upload, X, FileImage, Clock, AlertTriangle } from 'lucide-react';
 
 async function uploadRaceMedia(file: File, raceId: string, kind: 'circuit' | 'poster'): Promise<{ url: string | null; error: string | null }> {
   const ext = file.name.split('.').pop() ?? 'jpg';
@@ -30,7 +30,7 @@ export default function Races() {
   const [error, setError] = useState<string | null>(null);
   const [selectedStage, setSelectedStage] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ category_id: '', bib_start: '1', map_embed_url: '' });
+  const [form, setForm] = useState({ category_id: '', bib_start: '1', map_embed_url: '', registration_deadline: '' });
   const [circuitPhoto, setCircuitPhoto] = useState<File | null>(null);
   const [posterFile, setPosterFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -71,6 +71,7 @@ export default function Races() {
         category_id: form.category_id,
         bib_start: Number(form.bib_start) || 1,
         map_embed_url: form.map_embed_url || null,
+        registration_deadline: form.registration_deadline ? new Date(form.registration_deadline).toISOString() : null,
         is_global: true,
       })
       .select()
@@ -114,7 +115,7 @@ export default function Races() {
       setError(uploadError);
     } else {
       setOpen(false);
-      setForm({ category_id: '', bib_start: '1', map_embed_url: '' });
+      setForm({ category_id: '', bib_start: '1', map_embed_url: '', registration_deadline: '' });
       setCircuitPhoto(null);
       setPosterFile(null);
       setError(null);

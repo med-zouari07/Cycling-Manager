@@ -89,6 +89,7 @@ export interface Race {
   circuit_photo_url: string | null;
   map_embed_url: string | null;
   poster_url: string | null;
+  registration_deadline: string | null;
   is_global: boolean;
   created_at: string;
 }
@@ -138,5 +139,40 @@ export interface Profile {
   role: Role;
   is_active: boolean;
   club_name: string | null;
+  created_at: string;
+}
+
+export interface NationalTeamAthlete {
+  id: string;
+  first_name: string;
+  last_name: string;
+  photo_url: string | null;
+  sex: 'M' | 'F' | null;
+  birth_date: string | null;
+  category_id: string | null;
+  nationality: string | null;
+  license_number: string | null;
+  passport_url: string | null;
+  user_id: string;
+  created_at: string;
+}
+
+export interface NationalTeamDocument {
+  id: string;
+  athlete_id: string;
+  label: string;
+  file_url: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface ClubAnnualDocument {
+  id: string;
+  club_id: string;
+  season: string;
+  document_url: string;
+  status: 'pending' | 'approved' | 'rejected';
+  admin_note: string | null;
+  user_id: string;
   created_at: string;
 }
