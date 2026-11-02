@@ -4,14 +4,24 @@ import { useAuth } from '../lib/auth';
 import { isAdmin } from '../lib/supabase';
 import type { Registration, Race, Stage, Category, Rider, Club } from '../lib/types';
 import { PageHeader, Modal, EmptyState, Spinner, ErrorState, Badge } from '../components/ui';
-import { fullName, formatDate } from '../lib/hooks';
-import { ClipboardList, Plus, Check, X, Search, Flag, ChevronRight, Bike, CheckCheck } from 'lucide-react';
+import { fullName, formatDate, formatDateTime } from '../lib/hooks';
+import { ClipboardList, Plus, Check, X, Search, Flag, ChevronRight, Bike, CheckCheck, Clock, AlertTriangle } from 'lucide-react';
 
 const STATUS: Record<string, { label: string; color: 'yellow' | 'green' | 'red' }> = {
   pending: { label: 'En attente', color: 'yellow' },
   validated: { label: 'Validé', color: 'green' },
   refused: { label: 'Refusé', color: 'red' },
 };
+
+function RegistrationDeadline({ deadline }: { deadline: string }) {
+  const closed = new Date(deadline).getTime() <= Date.now();
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium ${closed ? 'text-error-600 dark:text-error-400' : 'text-warning-700 dark:text-warning-400'}`}>
+      {closed ? <AlertTriangle className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+      {closed ? 'Délai dépassé' : `Jusqu’au ${formatDateTime(deadline)}`}
+    </span>
+  );
+}
 
 export default function Registrations() {
   const { role, user } = useAuth();
@@ -120,6 +130,11 @@ export default function Registrations() {
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
+    const selectedRace = races.find((race) => race.id === selectedRaceId);
+    if (selectedRace?.registration_deadline && new Date(selectedRace.registration_deadline).getTime() <= Date.now()) {
+      setError('Le délai d’inscription pour cette course est dépassé.');
+      return;
+    }
     if (!selectedRaceId || selectedRiderIds.length === 0) return;
     setSubmitting(true);
     const rows = selectedRiderIds.map((riderId) => ({
@@ -192,6 +207,7 @@ export default function Registrations() {
     const allSelected = searchedRiders.length > 0 && searchedRiders.every((r) => selectedRiderIds.includes(r.id));
 
     const raceRegs = visibleRegs.filter((r) => r.race_id === selectedRaceId);
+    const registrationClosed = Boolean(race?.registration_deadline && new Date(race.registration_deadline).getTime() <= Date.now());
 
     return (
       <div>
@@ -203,17 +219,22 @@ export default function Registrations() {
             <h2 className="text-xl font-bold">{raceLabel(selectedRaceId)}</h2>
             <p className="text-sm text-gray-400">{raceStageDate(selectedRaceId)} · {catName(race?.category_id ?? '')}</p>
           </div>
-          <button
-            onClick={() => { setSelectedRiderIds([]); setRiderSearch(''); setOpen(true); }}
-            disabled={availableRiders.length === 0}
-            className="btn-primary ml-auto"
-          >
-            <Plus className="w-4 h-4" /> Inscrire des coureurs
-          </button>
+          <div className="ml-auto flex items-center gap-2">
+            {race?.registration_deadline && <RegistrationDeadline deadline={race.registration_deadline} />}
+            <button
+              onClick={() => { setSelectedRiderIds([]); setRiderSearch(''); setOpen(true); }}
+              disabled={availableRiders.length === 0 || registrationClosed}
+              className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Plus className="w-4 h-4" /> {registrationClosed ? 'Inscriptions closes' : 'Inscrire des coureurs'}
+            </button>
+          </div>
         </div>
 
+        {registrationClosed && <div className="mb-4 rounded-xl border border-warning-200 bg-warning-50 px-4 py-3 text-sm text-warning-700 dark:border-warning-500/30 dark:bg-warning-500/10 dark:text-warning-400">Le délai d'inscription est dépassé. Les nouvelles inscriptions ne sont plus acceptées.</div>}
+
         {raceRegs.length === 0 ? (
-          <EmptyState icon={ClipboardList} title="Aucune inscription" description="Inscrivez vos coureurs à cette course." />
+          <EmptyState icon={ClipboardList} title="Aucune inscription" description={registrationClosed ? 'Le délai d’inscription est dépassé.' : 'Inscrivez vos coureurs à cette course.'} />
         ) : (
           <div className="card overflow-hidden">
             <div className="overflow-x-auto">
@@ -383,6 +404,7 @@ export default function Registrations() {
                             <p className="text-xs text-gray-400">
                               {raceRegs.length} inscription(s) · {eligibleCount} éligible(s)
                             </p>
+                            {r.registration_deadline && <RegistrationDeadline deadline={r.registration_deadline} />}
                           </div>
                           <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-primary-500 transition" />
                         </div>

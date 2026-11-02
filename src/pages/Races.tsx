@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth';
 import { isAdmin } from '../lib/supabase';
 import type { Stage, Race, Category, Registration, Rider, Result } from '../lib/types';
 import { PageHeader, Modal, EmptyState, Spinner, ErrorState, Badge } from '../components/ui';
-import { fullName, formatDate, formatInterval } from '../lib/hooks';
+import { fullName, formatDate, formatInterval, formatDateTime } from '../lib/hooks';
 import { navigate } from '../lib/router';
 import { Bike, Plus, Trash2, Flag, ChevronRight, ClipboardList, BarChart3, Image as ImageIcon, MapPin, Upload, X, FileImage, Clock, AlertTriangle } from 'lucide-react';
 
@@ -183,6 +183,12 @@ export default function Races() {
           <div><label className="label">Dossard de départ</label><input type="number" value={form.bib_start} onChange={(e) => setForm({ ...form, bib_start: e.target.value })} className="input" /></div>
 
           <div>
+            <label className="label flex items-center gap-1.5"><Clock className="w-4 h-4 text-gray-400" /> Délai d'inscription</label>
+            <input type="datetime-local" value={form.registration_deadline} onChange={(e) => setForm({ ...form, registration_deadline: e.target.value })} className="input" />
+            <p className="text-xs text-gray-400 mt-1">Date limite pour inscrire des coureurs. Après cette date, les nouvelles inscriptions sont bloquées.</p>
+          </div>
+
+          <div>
             <label className="label flex items-center gap-1.5"><MapPin className="w-4 h-4 text-gray-400" /> Itinéraire de course (Google Maps embed)</label>
             <input
               value={form.map_embed_url}
@@ -275,6 +281,7 @@ function RaceCard({ race, catName, readOnly, onDelete, onRaceUpdated }: { race: 
   const [editMedia, setEditMedia] = useState(false);
   const [mediaForm, setMediaForm] = useState({
     map_embed_url: race.map_embed_url ?? '',
+    registration_deadline: race.registration_deadline ? race.registration_deadline.slice(0, 16) : '',
   });
   const [newCircuitPhoto, setNewCircuitPhoto] = useState<File | null>(null);
   const [newPoster, setNewPoster] = useState<File | null>(null);
@@ -329,6 +336,7 @@ function RaceCard({ race, catName, readOnly, onDelete, onRaceUpdated }: { race: 
 
     const updatePayload: Record<string, string | null> = {
       map_embed_url: mediaForm.map_embed_url || null,
+      registration_deadline: mediaForm.registration_deadline ? new Date(mediaForm.registration_deadline).toISOString() : null,
     };
     if (circuitPhotoUrl) updatePayload.circuit_photo_url = circuitPhotoUrl;
     if (posterUrl) updatePayload.poster_url = posterUrl;
@@ -359,7 +367,10 @@ function RaceCard({ race, catName, readOnly, onDelete, onRaceUpdated }: { race: 
           <div className="w-10 h-10 rounded-xl bg-accent-50 dark:bg-accent-500/10 text-accent-600 grid place-items-center"><Bike className="w-5 h-5" /></div>
           <div><h3 className="font-semibold">{catName}</h3><p className="text-xs text-gray-400">{validated.length} partant(s) · {results.length} résultat(s)</p></div>
         </div>
-        {!readOnly && <button onClick={onDelete} className="btn-ghost !p-1.5 hover:text-error-500"><Trash2 className="w-4 h-4" /></button>}
+        <div className="flex items-center gap-2">
+          {race.registration_deadline && <DeadlineBadge deadline={race.registration_deadline} />}
+          {!readOnly && <button onClick={onDelete} className="btn-ghost !p-1.5 hover:text-error-500"><Trash2 className="w-4 h-4" /></button>}
+        </div>
       </div>
 
       <div className="flex border-b border-gray-100 dark:border-slate-800">
@@ -392,6 +403,17 @@ function RaceCard({ race, catName, readOnly, onDelete, onRaceUpdated }: { race: 
                     className="input"
                   />
                   <p className="text-xs text-gray-400 mt-1">Collez l'URL d'intégration Google Maps.</p>
+                </div>
+
+                <div>
+                  <label className="label flex items-center gap-1.5"><Clock className="w-4 h-4 text-gray-400" /> Délai d'inscription</label>
+                  <input
+                    type="datetime-local"
+                    value={mediaForm.registration_deadline}
+                    onChange={(e) => setMediaForm({ ...mediaForm, registration_deadline: e.target.value })}
+                    className="input"
+                  />
+                  <p className="text-xs text-gray-400 mt-1">Laissez vide pour aucune limite.</p>
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -531,5 +553,15 @@ function RaceCard({ race, catName, readOnly, onDelete, onRaceUpdated }: { race: 
         )}
       </div>
     </div>
+  );
+}
+
+function DeadlineBadge({ deadline }: { deadline: string }) {
+  const expired = new Date(deadline).getTime() < Date.now();
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full ${expired ? 'bg-error-100 dark:bg-error-500/15 text-error-700 dark:text-error-400' : 'bg-warning-100 dark:bg-warning-500/15 text-warning-700 dark:text-warning-400'}`}>
+      <AlertTriangle className="w-3 h-3" />
+      {expired ? 'Inscriptions closes' : `Limite : ${formatDateTime(deadline)}`}
+    </span>
   );
 }

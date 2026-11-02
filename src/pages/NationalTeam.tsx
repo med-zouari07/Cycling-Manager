@@ -121,7 +121,7 @@ export default function NationalTeam() {
     setEditId(a.id);
     setForm({
       first_name: a.first_name, last_name: a.last_name, sex: a.sex ?? '', birth_date: a.birth_date ?? '',
-      category_id: a.category_id ?? '', nationality: a.nationalality ?? '', license_number: a.license_number ?? '',
+      category_id: a.category_id ?? '', nationality: a.nationality ?? '', license_number: a.license_number ?? '',
     });
     setOpen(true);
   };

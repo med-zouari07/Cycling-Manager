@@ -10,6 +10,7 @@ export interface Club {
   email: string | null;
   city: string | null;
   country: string | null;
+  user_id: string;
   created_at: string;
 }
 

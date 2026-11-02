@@ -20,6 +20,7 @@ import Calendar from './pages/Calendar';
 import Stats from './pages/Stats';
 import Notifications from './pages/Notifications';
 import Admin from './pages/Admin';
+import NationalTeam from './pages/NationalTeam';
 import { Spinner } from './components/ui';
 
 function Router() {
@@ -42,6 +43,7 @@ function Router() {
     case 'stats': return <Stats />;
     case 'notifications': return <Notifications />;
     case 'admin': return <Admin />;
+    case 'national-team': return <NationalTeam />;
     default: return <Dashboard />;
   }
 }

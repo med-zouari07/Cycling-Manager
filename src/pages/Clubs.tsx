@@ -134,7 +134,7 @@ export default function Clubs() {
     load();
   };
 
-  const reviewDoc = async (id: string, status: 'approved' | 'rejected', note?: string) => {
+  const reviewDoc = async (id: string, status: ClubAnnualDocument['status'], note?: string) => {
     await supabase.from('club_annual_documents').update({ status, admin_note: note ?? null }).eq('id', id);
     load();
   };
