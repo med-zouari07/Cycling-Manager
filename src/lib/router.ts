@@ -18,12 +18,13 @@ export type Route =
   | 'stats'
   | 'notifications'
   | 'admin'
-  | 'national-team';
+  | 'national-team'
+  | 'specifications';
 
 const ROUTES: Route[] = [
   'dashboard', 'vtt', 'route', 'clubs', 'riders', 'categories', 'championships', 'cups',
   'stages', 'races', 'registrations', 'results', 'rankings', 'calendar',
-  'stats', 'notifications', 'admin', 'national-team',
+  'stats', 'notifications', 'admin', 'national-team', 'specifications',
 ];
 
 export function getRoute(): Route {
