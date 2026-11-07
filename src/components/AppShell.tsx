@@ -8,7 +8,7 @@ import type { Notification } from '../lib/types';
 import {
   LayoutDashboard, Building2, Users, Tag, Trophy, Medal, Flag,
   ClipboardList, BarChart3, CalendarDays, Bell, Settings, Bike,
-  Menu, X, Search, Sun, Moon, LogOut, ChevronRight, Mountain, ShieldCheck, FileText,
+  Menu, X, Search, Sun, Moon, LogOut, ChevronRight, Mountain, ShieldCheck,
 } from 'lucide-react';
 
 interface NavItem {
@@ -60,7 +60,6 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { route: 'notifications', label: 'Notifications', icon: Bell, readOnly: true },
       { route: 'admin', label: 'Administration', icon: Settings },
       { route: 'national-team', label: 'Équipe nationale', icon: ShieldCheck },
-      { route: 'specifications', label: 'Cahier des charges', icon: FileText, readOnly: true },
     ],
   },
 ];

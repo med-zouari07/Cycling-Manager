@@ -21,7 +21,6 @@ import Stats from './pages/Stats';
 import Notifications from './pages/Notifications';
 import Admin from './pages/Admin';
 import NationalTeam from './pages/NationalTeam';
-import Specifications from './pages/Specifications';
 import { Spinner } from './components/ui';
 
 function Router() {
@@ -45,7 +44,6 @@ function Router() {
     case 'notifications': return <Notifications />;
     case 'admin': return <Admin />;
     case 'national-team': return <NationalTeam />;
-    case 'specifications': return <Specifications />;
     default: return <Dashboard />;
   }
 }
